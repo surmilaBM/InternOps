@@ -1,31 +1,5 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { generateAIResponse } = require('../../services/aiProviderService');
 
-const apiKey = process.env.GEMINI_API_KEY;
-
-function getModel() {
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not configured');
-  }
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-
-  return genAI.getGenerativeModel({
-    model: 'gemini-3.6-flash',
-  });
-}
-
-/**
- * Verify an intern's claimed actions against crawled proof content.
- *
- * @param {object} params
- * @param {string} params.content - Crawled proof content.
- * @param {object} params.claimedActions - Claimed actions.
- * @returns {Promise<{
- *   confidence: 'high' | 'medium' | 'low' | 'unverifiable',
- *   supports: boolean | null,
- *   notes: string
- * }>}
- */
 async function verifyClaim({ content, claimedActions }) {
   if (typeof content !== 'string' || !content.trim()) {
     return {
@@ -78,10 +52,21 @@ Rules:
 `;
 
   try {
-    const model = getModel();
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text().trim();
+    const response = await generateAIResponse({
+      userId: 'social-task-verification',
+      messages: [{ role: 'user', content: prompt }],
+    });
 
+    if (response.fallback) {
+      console.warn('[AI Verify] AI service fallback returned', response.error);
+      return {
+        confidence: 'unverifiable',
+        supports: null,
+        notes: 'AI verification service is currently unavailable.',
+      };
+    }
+
+    const responseText = String(response.content || '').trim();
     const cleanedText = responseText
       .replace(/^```json\s*/i, '')
       .replace(/^```\s*/i, '')
@@ -116,7 +101,7 @@ Rules:
           : 'AI verification completed without additional notes.',
     };
   } catch (error) {
-    console.error('AI verification error:', error);
+    console.error('[AI Verify] Verification request failed:', error.message);
 
     return {
       confidence: 'unverifiable',

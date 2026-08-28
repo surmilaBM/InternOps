@@ -152,6 +152,13 @@ async function routes(fastify) {
           messages: finalMessages,
         });
 
+        if (result.fallback) {
+          req.log.error({ error: result.error }, 'AI service unavailable');
+          return reply.status(503).send(result);
+        }
+
+        await aiRepo.incrementUsage(req.user.id);
+
         return {
           provider: result.provider,
           cached: result.cached,
