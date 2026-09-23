@@ -225,6 +225,16 @@ async function revokeCertificate(id, reason = null) {
 // ============================================================
 
 async function startBulkGeneration(data, userId) {
+  const MAX_BULK_CERTIFICATES = 500;
+
+  if (data.certificates.length > MAX_BULK_CERTIFICATES) {
+    const err = new Error(
+      `Bulk generation limit exceeded: maximum ${MAX_BULK_CERTIFICATES} certificates per request (received ${data.certificates.length})`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
   const job = await repo.createBulkJob(
     {
       template_id: data.template_id,
@@ -490,19 +500,14 @@ Return only valid JSON in this exact format:
 // ============================================================
 
 async function quickGenerate(data, userId) {
-  const pool = require('../../config/db');
-
   // 1. Auto-generate certificate number: CERT/DOMAIN/YYYY/NNNN
   const domainCode = (data.domain || 'GEN')
     .replace(/[^a-zA-Z]/g, '')
     .substring(0, 4)
     .toUpperCase();
   const year = new Date().getFullYear();
-  const countResult = await pool.query(
-    `SELECT COUNT(*) as cnt FROM certificates WHERE EXTRACT(YEAR FROM created_at) = $1`,
-    [year]
-  );
-  const seq = String(parseInt(countResult.rows[0].cnt) + 1).padStart(4, '0');
+  const count = await repo.getCertificateCountByYear(year);
+  const seq = String(count + 1).padStart(4, '0');
   const certificateNumber = `CERT/${domainCode}/${year}/${seq}`;
 
   // 2. Get template styling
@@ -518,7 +523,7 @@ async function quickGenerate(data, userId) {
 
   // 3b. Split text pieces for the branded PDF layout
   const roleLine = data.role
-    ? `has successfully completed their internship as ${data.role} of domain`
+    ? `has successfully completed their internship as ${data.role} in the domain of`
     : 'has successfully completed their internship in the domain of';
   const dateRangeText = `from ${startFormatted} to ${endFormatted}`;
   const pdfBody =
